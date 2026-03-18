@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>AIチャット</title>
+<style>
+body {
+  background:#111;
+  color:#fff;
+  font-family:sans-serif;
+}
+#chat {
+  height:300px;
+  overflow:auto;
+  border:1px solid #555;
+  padding:10px;
+}
+input {
+  width:80%;
+}
+button {
+  width:18%;
+}
+</style>
+</head>
+<body>
+
+<h2>AIチャット</h2>
+
+<div id="chat"></div>
+
+<input id="input" placeholder="メッセージ">
+<button onclick="send()">送信</button>
+
+<script>
+let messages = [];
+
+// ローカル保存から復元
+if(localStorage.getItem("chat")){
+  messages = JSON.parse(localStorage.getItem("chat"));
+}
+
+async function send(){
+  const input = document.getElementById("input");
+  const chat = document.getElementById("chat");
+
+  const text = input.value;
+  if(!text) return;
+
+  chat.innerHTML += `<p>👤 ${text}</p>`;
+  messages.push({ role:"user", content:text });
+
+  input.value = "";
+
+  const res = await fetch("/api/chat", {
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json"
+    },
+    body: JSON.stringify({ messages })
+  });
+
+  const data = await res.json();
+  const reply = data.reply;
+
+  chat.innerHTML += `<p>🤖 ${reply}</p>`;
+  messages.push({ role:"assistant", content:reply });
+
+  // 保存
+  localStorage.setItem("chat", JSON.stringify(messages));
+
+  chat.scrollTop = chat.scrollHeight;
+}
+</script>
+
+</body>
+</html>
