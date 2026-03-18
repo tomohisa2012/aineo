@@ -15,67 +15,106 @@ body {
   height:100vh;
 }
 
+/* ヘッダー */
+header {
+  padding:15px;
+  background:#020617;
+  font-size:18px;
+  font-weight:bold;
+  border-bottom:1px solid #1e293b;
+}
+
+/* チャット */
 #chat {
   flex:1;
   overflow-y:auto;
   padding:15px;
+  display:flex;
+  flex-direction:column;
 }
 
+/* メッセージ */
 .message {
-  max-width:70%;
-  padding:10px;
-  margin:5px 0;
-  border-radius:10px;
+  max-width:75%;
+  padding:12px 14px;
+  margin:6px 0;
+  border-radius:12px;
+  line-height:1.4;
+  box-shadow:0 2px 8px rgba(0,0,0,0.3);
+  animation: fadeIn 0.2s ease;
 }
 
 .user {
   background:#3b82f6;
-  margin-left:auto;
+  align-self:flex-end;
 }
 
 .ai {
   background:#1e293b;
+  align-self:flex-start;
 }
 
+/* 入力エリア */
 #inputArea {
   display:flex;
   padding:10px;
   background:#020617;
+  border-top:1px solid #1e293b;
 }
 
-input {
+textarea {
   flex:1;
+  resize:none;
   padding:10px;
   border:none;
-  border-radius:5px;
+  border-radius:8px;
+  font-size:14px;
+  height:45px;
 }
 
 button {
   margin-left:10px;
-  padding:10px 15px;
+  padding:10px 16px;
   border:none;
   background:#22c55e;
   color:#000;
-  border-radius:5px;
+  border-radius:8px;
+  font-weight:bold;
   cursor:pointer;
+}
+
+button:hover {
+  background:#16a34a;
+}
+
+/* アニメーション */
+@keyframes fadeIn {
+  from { opacity:0; transform:translateY(5px); }
+  to { opacity:1; transform:translateY(0); }
 }
 </style>
 
 </head>
 <body>
 
+<header>🤖 AIチャット</header>
+
 <div id="chat"></div>
 
 <div id="inputArea">
-  <input id="input" placeholder="メッセージ入力...">
+  <textarea id="input" placeholder="メッセージ入力（Enterで送信 / Shift+Enterで改行）"></textarea>
   <button onclick="send()">送信</button>
 </div>
 
 <script>
 let messages = [];
 
+// 保存から復元
 if(localStorage.getItem("chat")){
   messages = JSON.parse(localStorage.getItem("chat"));
+  messages.forEach(m=>{
+    addMessage(m.content, m.role === "user" ? "user" : "ai");
+  });
 }
 
 function addMessage(text, type){
@@ -89,9 +128,17 @@ function addMessage(text, type){
   chat.scrollTop = chat.scrollHeight;
 }
 
+// Enter送信
+document.getElementById("input").addEventListener("keydown", function(e){
+  if(e.key === "Enter" && !e.shiftKey){
+    e.preventDefault();
+    send();
+  }
+});
+
 async function send(){
   const input = document.getElementById("input");
-  const text = input.value;
+  const text = input.value.trim();
   if(!text) return;
 
   addMessage(text, "user");
@@ -99,20 +146,30 @@ async function send(){
 
   input.value = "";
 
+  // 考え中表示
   addMessage("考え中...", "ai");
 
-  const res = await fetch("/api/chat", {
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({ messages })
-  });
+  let data;
 
-  const data = await res.json();
+  try {
+    const res = await fetch("/api/chat", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ messages })
+    });
 
-  document.querySelectorAll(".ai").pop().remove();
+    data = await res.json();
+  } catch (e) {
+    data = { reply:"通信エラー" };
+  }
 
-  addMessage(data.reply, "ai");
-  messages.push({ role:"assistant", content:data.reply });
+  // 最後の「考え中」を削除
+  const aiMessages = document.querySelectorAll(".ai");
+  const last = aiMessages[aiMessages.length - 1];
+  if (last) last.remove();
+
+  addMessage(data.reply || "エラー", "ai");
+  messages.push({ role:"assistant", content:data.reply || "エラー" });
 
   localStorage.setItem("chat", JSON.stringify(messages));
 }
