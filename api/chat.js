@@ -3,34 +3,57 @@ export default async function handler(req, res) {
     const { messages } = req.body;
     const userMessage = messages[messages.length - 1].content;
 
-    // ① Wikipedia検索（ちゃんと検索する）
-    const searchRes = await fetch(
-      "https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch=" +
-      encodeURIComponent(userMessage) +
-      "&format=json&origin=*"
-    );
-
-    const searchData = await searchRes.json();
-    const firstResult = searchData.query.search[0];
+    // 🔥 検索が必要か判定
+    const needSearch =
+      userMessage.includes("とは") ||
+      userMessage.includes("誰") ||
+      userMessage.includes("何") ||
+      userMessage.includes("教えて") ||
+      userMessage.includes("スタンド");
 
     let wikiText = "";
 
-    if (firstResult) {
-      const title = firstResult.title;
-
-      // ② 記事取得
-      const pageRes = await fetch(
-        "https://ja.wikipedia.org/api/rest_v1/page/summary/" +
-        encodeURIComponent(title)
+    if (needSearch) {
+      // Wikipedia検索
+      const searchRes = await fetch(
+        "https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch=" +
+        encodeURIComponent(userMessage) +
+        "&format=json&origin=*"
       );
 
-      if (pageRes.ok) {
-        const pageData = await pageRes.json();
-        wikiText = pageData.extract || "";
+      const searchData = await searchRes.json();
+      const firstResult = searchData.query.search[0];
+
+      if (firstResult) {
+        const pageRes = await fetch(
+          "https://ja.wikipedia.org/api/rest_v1/page/summary/" +
+          encodeURIComponent(firstResult.title)
+        );
+
+        if (pageRes.ok) {
+          const pageData = await pageRes.json();
+          wikiText = pageData.extract || "";
+        }
       }
     }
 
-    // ③ AIに「これ以外使うな」と強制
+    // 🔥 システム指示（ここが超重要）
+    const systemPrompt = `
+あなたは自然に会話できるAIです。
+
+【ルール】
+・普段は普通に会話してください
+・しりとりなどの遊びは絶対に優先すること
+・不自然に解説しないこと
+
+【検索モード】
+・以下の情報がある場合だけ参考にする
+・無い場合は普通に答える
+
+【参考情報】
+${wikiText}
+`;
+
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -40,20 +63,8 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [
-          {
-            role: "system",
-            content: `
-以下の情報だけを使って答えてください。
-情報にないことは絶対に答えないでください。
-
-【情報】
-${wikiText}
-`
-          },
-          {
-            role: "user",
-            content: userMessage
-          }
+          { role: "system", content: systemPrompt },
+          ...messages
         ]
       })
     });
@@ -61,7 +72,7 @@ ${wikiText}
     const data = await response.json();
 
     return res.status(200).json({
-      reply: data.choices?.[0]?.message?.content || "分かりません"
+      reply: data.choices?.[0]?.message?.content || "うまく答えられなかった"
     });
 
   } catch (e) {
