@@ -3,18 +3,34 @@ export default async function handler(req, res) {
     const { messages } = req.body;
     const userMessage = messages[messages.length - 1].content;
 
-    // ① Wikipedia検索
-    const wikiRes = await fetch(
-      "https://ja.wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(userMessage)
+    // ① Wikipedia検索（ちゃんと検索する）
+    const searchRes = await fetch(
+      "https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch=" +
+      encodeURIComponent(userMessage) +
+      "&format=json&origin=*"
     );
 
+    const searchData = await searchRes.json();
+    const firstResult = searchData.query.search[0];
+
     let wikiText = "";
-    if (wikiRes.ok) {
-      const wikiData = await wikiRes.json();
-      wikiText = wikiData.extract || "";
+
+    if (firstResult) {
+      const title = firstResult.title;
+
+      // ② 記事取得
+      const pageRes = await fetch(
+        "https://ja.wikipedia.org/api/rest_v1/page/summary/" +
+        encodeURIComponent(title)
+      );
+
+      if (pageRes.ok) {
+        const pageData = await pageRes.json();
+        wikiText = pageData.extract || "";
+      }
     }
 
-    // ② AIに渡す
+    // ③ AIに「これ以外使うな」と強制
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -27,14 +43,17 @@ export default async function handler(req, res) {
           {
             role: "system",
             content: `
-以下の情報を必ず参考にして答えてください。
-情報が足りない場合は「分かりません」と答えてください。
+以下の情報だけを使って答えてください。
+情報にないことは絶対に答えないでください。
 
-【参考情報】
+【情報】
 ${wikiText}
 `
           },
-          ...messages
+          {
+            role: "user",
+            content: userMessage
+          }
         ]
       })
     });
@@ -42,7 +61,7 @@ ${wikiText}
     const data = await response.json();
 
     return res.status(200).json({
-      reply: data.choices?.[0]?.message?.content || "返答なし"
+      reply: data.choices?.[0]?.message?.content || "分かりません"
     });
 
   } catch (e) {
