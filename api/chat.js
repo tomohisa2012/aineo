@@ -3,17 +3,32 @@ export default async function handler(req, res) {
     const { messages } = req.body;
     const userMessage = messages[messages.length - 1].content;
 
-    // 🔍 検索判定
-    const needSearch =
-      userMessage.includes("とは") ||
+    let infoText = "";
+
+    // 🔥 キャラっぽい質問判定
+    const isCharacter =
       userMessage.includes("誰") ||
-      userMessage.includes("何") ||
-      userMessage.includes("教えて") ||
-      userMessage.includes("スタンド");
+      userMessage.includes("キャラ") ||
+      userMessage.includes("スタンド") ||
+      userMessage.includes("能力");
 
-    let wikiText = "";
+    if (isCharacter) {
+      // ピクシブ百科（簡易）
+      try {
+        const pixivRes = await fetch(
+          "https://dic.pixiv.net/api/v1/search?word=" +
+          encodeURIComponent(userMessage)
+        );
 
-    if (needSearch) {
+        if (pixivRes.ok) {
+          const pixivData = await pixivRes.json();
+          infoText = JSON.stringify(pixivData).slice(0, 1000);
+        }
+      } catch (e) {
+        console.log("pixiv error", e);
+      }
+    } else {
+      // Wikipedia
       try {
         const searchRes = await fetch(
           "https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch=" +
@@ -22,36 +37,31 @@ export default async function handler(req, res) {
         );
 
         const searchData = await searchRes.json();
-        const firstResult = searchData?.query?.search?.[0];
+        const first = searchData?.query?.search?.[0];
 
-        if (firstResult) {
+        if (first) {
           const pageRes = await fetch(
             "https://ja.wikipedia.org/api/rest_v1/page/summary/" +
-            encodeURIComponent(firstResult.title)
+            encodeURIComponent(first.title)
           );
 
           if (pageRes.ok) {
             const pageData = await pageRes.json();
-            wikiText = pageData.extract || "";
+            infoText = pageData.extract || "";
           }
         }
       } catch (e) {
-        console.log("Wikipedia取得失敗:", e);
+        console.log("wiki error", e);
       }
     }
 
     const systemPrompt = `
-あなたは自然に会話できるAIです。
+以下の情報を参考に答えてください。
+無い場合は無理に答えない。
 
-・普段は普通に会話
-・しりとりなどの遊びは優先
-・解説しすぎない
-
-【参考情報】
-${wikiText}
+${infoText}
 `;
 
-    // 🔥 Groq呼び出し
     const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -67,27 +77,15 @@ ${wikiText}
       })
     });
 
-    // 👇 ここ重要（textで受ける）
-    const text = await aiRes.text();
-
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      console.error("AIレスポンスJSON変換失敗:", text);
-      return res.status(500).json({
-        reply: "AIの応答がおかしい（JSONじゃない）"
-      });
-    }
+    const data = await aiRes.json();
 
     return res.status(200).json({
-      reply: data?.choices?.[0]?.message?.content || "うまく答えられなかった"
+      reply: data?.choices?.[0]?.message?.content || "分からない"
     });
 
   } catch (e) {
-    console.error("サーバーエラー:", e);
     return res.status(500).json({
-      reply: "サーバーエラー：" + e.message
+      reply: "エラー：" + e.message
     });
   }
 }
