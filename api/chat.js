@@ -3,32 +3,17 @@ export default async function handler(req, res) {
     const { messages } = req.body;
     const userMessage = messages[messages.length - 1].content;
 
+    // 🔥 会話かどうか判定（重要）
+    const casual =
+      userMessage.length < 10 &&
+      !userMessage.includes("とは") &&
+      !userMessage.includes("誰") &&
+      !userMessage.includes("何");
+
     let infoText = "";
 
-    // 🔥 キャラっぽい質問判定
-    const isCharacter =
-      userMessage.includes("誰") ||
-      userMessage.includes("キャラ") ||
-      userMessage.includes("スタンド") ||
-      userMessage.includes("能力");
-
-    if (isCharacter) {
-      // ピクシブ百科（簡易）
-      try {
-        const pixivRes = await fetch(
-          "https://dic.pixiv.net/api/v1/search?word=" +
-          encodeURIComponent(userMessage)
-        );
-
-        if (pixivRes.ok) {
-          const pixivData = await pixivRes.json();
-          infoText = JSON.stringify(pixivData).slice(0, 1000);
-        }
-      } catch (e) {
-        console.log("pixiv error", e);
-      }
-    } else {
-      // Wikipedia
+    // 🔍 必要なときだけ検索
+    if (!casual) {
       try {
         const searchRes = await fetch(
           "https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch=" +
@@ -50,22 +35,26 @@ export default async function handler(req, res) {
             infoText = pageData.extract || "";
           }
         }
-      } catch (e) {
-        console.log("wiki error", e);
-      }
+      } catch (e) {}
     }
 
     const systemPrompt = `
-以下の情報を参考に答えてください。
-無い場合は無理に答えない。
+あなたは自然な会話ができるAIです。
 
+【ルール】
+・普通の会話はそのまま返す（解説しない）
+・挨拶には挨拶で返す
+・情報があるときだけ参考にする
+・セリフなど曖昧なものは無理に答えない
+
+【参考情報】
 ${infoText}
 `;
 
     const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+        "Authorization": \`Bearer \${process.env.GROQ_API_KEY}\`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
